@@ -1,4 +1,4 @@
-"""Speaker group and source selection for forked-daapd."""
+"""Speaker group selection for forked-daapd."""
 
 from typing import Any, override
 
@@ -11,7 +11,6 @@ from .const import (
     FD_NAME,
     SIGNAL_CONFIG_OPTIONS_UPDATE,
     SIGNAL_UPDATE_OUTPUTS,
-    SIGNAL_UPDATE_SOURCE,
     SPEAKER_GROUP_MODIFIED_SUFFIX,
 )
 from .coordinator import ForkedDaapdConfigEntry, ForkedDaapdUpdater
@@ -22,12 +21,9 @@ async def async_setup_entry(
     config_entry: ForkedDaapdConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the selects from a config entry."""
+    """Set up the speaker group select from a config entry."""
     async_add_entities(
-        [
-            ForkedDaapdSpeakerGroupSelect(config_entry.runtime_data, config_entry),
-            ForkedDaapdSourceSelect(config_entry.runtime_data, config_entry),
-        ]
+        [ForkedDaapdSpeakerGroupSelect(config_entry.runtime_data, config_entry)]
     )
 
 
@@ -92,65 +88,3 @@ class ForkedDaapdSpeakerGroupSelect(SelectEntity):
         if option not in self._updater.speaker_groups:
             option = option.removesuffix(SPEAKER_GROUP_MODIFIED_SUFFIX)
         await self._updater.async_apply_speaker_group(option)
-
-
-class ForkedDaapdSourceSelect(SelectEntity):
-    """Select the source of the server."""
-
-    _attr_icon = "mdi:playlist-music"
-    _attr_name = f"{FD_NAME} source"
-    _attr_should_poll = False
-
-    def __init__(
-        self, updater: ForkedDaapdUpdater, config_entry: ForkedDaapdConfigEntry
-    ) -> None:
-        """Initialize the source select."""
-        self._updater = updater
-        self._entry_id = config_entry.entry_id
-        self._attr_device_info = updater.device_info
-        self._attr_unique_id = f"{config_entry.entry_id}-source"
-
-    @override
-    async def async_added_to_hass(self) -> None:
-        """Use lifecycle hooks."""
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                SIGNAL_UPDATE_SOURCE.format(self._entry_id),
-                self._async_handle_update,
-            )
-        )
-
-    @callback
-    def _async_handle_update(self) -> None:
-        """Write the new state."""
-        self.async_write_ha_state()
-
-    @property
-    @override
-    def available(self) -> bool:
-        """Return whether the server has reported its sources."""
-        master = self._updater.master
-        return master is not None and master.available and bool(master.source_list)
-
-    @property
-    @override
-    def options(self) -> list[str]:
-        """Return the sources."""
-        if (master := self._updater.master) is None:
-            return []
-        return master.source_list
-
-    @property
-    @override
-    def current_option(self) -> str | None:
-        """Return the current source."""
-        if (master := self._updater.master) is None:
-            return None
-        return master.source
-
-    @override
-    async def async_select_option(self, option: str) -> None:
-        """Change the source, starting playback of playlists."""
-        if (master := self._updater.master) is not None:
-            await master.async_select_source_and_play(option)

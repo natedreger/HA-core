@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Sequence
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pyforked_daapd import ForkedDaapdAPI
 
@@ -29,9 +29,6 @@ from .const import (
     normalize_speaker_name,
 )
 
-if TYPE_CHECKING:
-    from .media_player import ForkedDaapdMaster
-
 type ForkedDaapdConfigEntry = ConfigEntry[ForkedDaapdUpdater]
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,7 +48,6 @@ class ForkedDaapdUpdater:
         self._all_output_ids: set[str] = set()
         self._entry_id = entry_id
         self.outputs: list[dict[str, Any]] = []
-        self.master: ForkedDaapdMaster | None = None
 
     @property
     def api(self) -> ForkedDaapdAPI:

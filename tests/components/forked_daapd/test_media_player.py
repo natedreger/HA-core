@@ -1299,35 +1299,3 @@ def test_server_device(
     assert device.configuration_url == (
         "homeassistant://config/integrations/integration/forked_daapd"
     )
-
-
-@pytest.mark.parametrize(
-    ("source", "start_playback_calls"),
-    [
-        pytest.param("test_playlist (playlist)", 1, id="playlist"),
-        pytest.param(SOURCE_NAME_CLEAR, 0, id="clear"),
-    ],
-)
-async def test_source_select(
-    hass: HomeAssistant,
-    mock_api_object: Mock,
-    source: str,
-    start_playback_calls: int,
-) -> None:
-    """Test the source dropdown follows the server and plays playlists."""
-    updater_update = mock_api_object.start_websocket_handler.call_args[0][2]
-    await updater_update(["database"])
-    await hass.async_block_till_done()
-    state = hass.states.get("select.owntone_source")
-    assert state.state == SOURCE_NAME_DEFAULT
-    assert source in state.attributes[ATTR_OPTIONS]
-
-    await hass.services.async_call(
-        SELECT_DOMAIN,
-        SERVICE_SELECT_OPTION,
-        {ATTR_ENTITY_ID: "select.owntone_source", ATTR_OPTION: source},
-        blocking=True,
-    )
-
-    assert mock_api_object.start_playback.call_count == start_playback_calls
-    assert hass.states.get("select.owntone_source").state == SOURCE_NAME_DEFAULT

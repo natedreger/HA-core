@@ -64,7 +64,6 @@ from .const import (
     SIGNAL_UPDATE_OUTPUTS,
     SIGNAL_UPDATE_PLAYER,
     SIGNAL_UPDATE_QUEUE,
-    SIGNAL_UPDATE_SOURCE,
     SOURCE_NAME_CLEAR,
     SOURCE_NAME_DEFAULT,
     STARTUP_DATA,
@@ -93,8 +92,6 @@ async def async_setup_entry(
         ip_address=host,
         config_entry=config_entry,
     )
-
-    forked_daapd_updater.master = forked_daapd_master
 
     @callback
     def async_add_zones(api, outputs):
@@ -329,7 +326,6 @@ class ForkedDaapdMaster(MediaPlayerEntity):
         """Call update method."""
         self._available = available
         self.async_write_ha_state()
-        async_dispatcher_send(self.hass, SIGNAL_UPDATE_SOURCE.format(self._entry_id))
 
     @callback
     def update_options(self, options):
@@ -926,13 +922,6 @@ class ForkedDaapdMaster(MediaPlayerEntity):
         elif source == SOURCE_NAME_CLEAR:  # clear playlist
             await self.api.clear_queue()
         self.async_write_ha_state()
-        async_dispatcher_send(self.hass, SIGNAL_UPDATE_SOURCE.format(self._entry_id))
-
-    async def async_select_source_and_play(self, source: str) -> None:
-        """Change source and start playback if the source is a playlist."""
-        await self.async_select_source(source)
-        if source.endswith(" (playlist)"):
-            await self.api.start_playback()
 
     def _use_pipe_control(self):
         """Return which pipe control from KNOWN_PIPES to use."""
