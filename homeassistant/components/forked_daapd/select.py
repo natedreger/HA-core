@@ -40,6 +40,7 @@ class ForkedDaapdSpeakerGroupSelect(SelectEntity):
         """Initialize the speaker group select."""
         self._updater = updater
         self._entry_id = config_entry.entry_id
+        self._attr_device_info = updater.device_info
         self._attr_unique_id = f"{config_entry.entry_id}-speaker_group"
 
     @override

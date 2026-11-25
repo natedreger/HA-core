@@ -86,7 +86,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 TEST_MASTER_ENTITY_NAME = "media_player.owntone_server"
 TEST_SELECT_ENTITY_NAME = "select.owntone_speaker_group"
@@ -1284,3 +1284,14 @@ async def test_select_none_speaker_group(
         call("0", selected=False),
         call("100", selected=False),
     ]
+
+
+@pytest.mark.usefixtures("mock_api_object")
+def test_server_device(
+    entity_registry: er.EntityRegistry, device_registry: dr.DeviceRegistry
+) -> None:
+    """Test the server and speaker group entities share a device."""
+    master = entity_registry.async_get(TEST_MASTER_ENTITY_NAME)
+    select = entity_registry.async_get(TEST_SELECT_ENTITY_NAME)
+    assert master.device_id == select.device_id
+    assert device_registry.async_get(master.device_id).name == "OwnTone server"

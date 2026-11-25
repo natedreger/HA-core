@@ -267,6 +267,7 @@ class ForkedDaapdMaster(MediaPlayerEntity):
         self._clientsession = clientsession
         self._entry_id = config_entry.entry_id
         self._updater = config_entry.runtime_data
+        self._attr_device_info = self._updater.device_info
         self.update_options(config_entry.options)
         self._paused_event = asyncio.Event()
         self._pause_requested = False

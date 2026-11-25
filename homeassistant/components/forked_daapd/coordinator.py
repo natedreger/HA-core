@@ -10,11 +10,13 @@ from pyforked_daapd import ForkedDaapdAPI
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import PlatformNotReady, ServiceValidationError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     CONF_SPEAKERS,
     DOMAIN,
+    FD_NAME,
     SIGNAL_ADD_ZONES,
     SIGNAL_UPDATE_DATABASE,
     SIGNAL_UPDATE_MASTER,
@@ -51,6 +53,13 @@ class ForkedDaapdUpdater:
     def api(self) -> ForkedDaapdAPI:
         """Return the API object."""
         return self._api
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return the server device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)}, name=f"{FD_NAME} server"
+        )
 
     @property
     def speaker_groups(self) -> dict[str, dict[str, int]]:
