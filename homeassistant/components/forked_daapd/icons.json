@@ -1,0 +1,7 @@
+{
+  "services": {
+    "select_speaker_group": {
+      "service": "mdi:speaker-multiple"
+    }
+  }
+}

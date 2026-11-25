@@ -1,14 +1,38 @@
 """The forked_daapd component."""
 
+import probatio
 from pyforked_daapd import ForkedDaapdAPI
 
+from homeassistant.components.media_player import (
+    DOMAIN as MEDIA_PLAYER_DOMAIN,
+    MediaPlayerEntityFeature,
+)
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv, service
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
+from .const import DOMAIN
 from .coordinator import ForkedDaapdConfigEntry, ForkedDaapdUpdater
 
-PLATFORMS = [Platform.MEDIA_PLAYER]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+PLATFORMS = [Platform.MEDIA_PLAYER, Platform.SELECT]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the actions."""
+    service.async_register_platform_entity_service(
+        hass,
+        DOMAIN,
+        "select_speaker_group",
+        entity_domain=MEDIA_PLAYER_DOMAIN,
+        schema={probatio.Required("speaker_group"): cv.string},
+        func="async_select_speaker_group",
+        # Only the server entity supports grouping
+        required_features=[MediaPlayerEntityFeature.GROUPING],
+    )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ForkedDaapdConfigEntry) -> None:

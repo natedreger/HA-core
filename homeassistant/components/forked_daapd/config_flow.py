@@ -7,25 +7,46 @@ from typing import Any, override
 import probatio
 from pyforked_daapd import ForkedDaapdAPI
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigEntryState,
+    ConfigFlow,
+    ConfigFlowResult,
+    ConfigSubentryFlow,
+    OptionsFlow,
+    SubentryFlowResult,
+)
 from homeassistant.const import CONF_HOST, CONF_NAME, CONF_PASSWORD, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+)
 from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     CONF_LIBRESPOT_JAVA_PORT,
     CONF_MAX_PLAYLISTS,
+    CONF_SPEAKERS,
     CONF_TTS_PAUSE_TIME,
     CONF_TTS_VOLUME,
     DEFAULT_PORT,
     DEFAULT_TTS_PAUSE_TIME,
     DEFAULT_TTS_VOLUME,
     DOMAIN,
+    SPEAKER_GROUP_NONE,
+    SUBENTRY_TYPE_SPEAKER_GROUP,
+    normalize_speaker_name,
 )
 from .coordinator import ForkedDaapdConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+DEFAULT_GROUP_VOLUME = 50
 
 
 # Can't use all probatio types: https://github.com/home-assistant/core/issues/32819
@@ -86,6 +107,136 @@ class ForkedDaapdOptionsFlowHandler(OptionsFlow):
         )
 
 
+class SpeakerGroupSubentryFlowHandler(ConfigSubentryFlow):
+    """Handle adding and editing a speaker group."""
+
+    def __init__(self) -> None:
+        """Initialize."""
+        self._name = ""
+        self._speakers: list[str] = []
+        self._volumes: dict[str, int] = {}
+        self._speaker_options: list[str] = []
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a speaker group."""
+        return await self._async_step_group("user", user_input)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Edit a speaker group."""
+        return await self._async_step_group("reconfigure", user_input)
+
+    async def _async_step_group(
+        self, step_id: str, user_input: dict[str, Any] | None
+    ) -> SubentryFlowResult:
+        """Ask for the group name and its speakers."""
+        entry: ForkedDaapdConfigEntry = self._get_entry()
+        subentry = (
+            self._get_reconfigure_subentry() if step_id == "reconfigure" else None
+        )
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            self._name = user_input[CONF_NAME].strip()
+            self._speakers = user_input[CONF_SPEAKERS]
+            if not self._name:
+                errors[CONF_NAME] = "name_required"
+            elif self._name.casefold() == SPEAKER_GROUP_NONE.casefold() or any(
+                other.subentry_type == SUBENTRY_TYPE_SPEAKER_GROUP
+                and other.title.casefold() == self._name.casefold()
+                and (subentry is None or other.subentry_id != subentry.subentry_id)
+                for other in entry.subentries.values()
+            ):
+                errors[CONF_NAME] = "name_exists"
+            elif self._speakers:
+                return await self.async_step_volumes()
+            else:
+                return self._async_save()
+        else:
+            if entry.state is not ConfigEntryState.LOADED:
+                return self.async_abort(reason="entry_not_loaded")
+            if not (response := await entry.runtime_data.api.get_request("outputs")):
+                return self.async_abort(reason="cannot_connect")
+            names = {
+                normalize_speaker_name(output["name"]): output["name"]
+                for output in response["outputs"]
+            }
+            if subentry:
+                self._name = subentry.title
+                for speaker in subentry.data[CONF_SPEAKERS]:
+                    # Keep saved speakers that are currently offline selectable
+                    name = names.setdefault(
+                        normalize_speaker_name(speaker["name"]), speaker["name"]
+                    )
+                    self._speakers.append(name)
+                    self._volumes[name] = speaker["volume"]
+            self._speaker_options = list(names.values())
+
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self.add_suggested_values_to_schema(
+                probatio.Schema(
+                    {
+                        probatio.Required(CONF_NAME): str,
+                        probatio.Required(CONF_SPEAKERS, default=[]): SelectSelector(
+                            SelectSelectorConfig(
+                                options=self._speaker_options, multiple=True
+                            )
+                        ),
+                    }
+                ),
+                {CONF_NAME: self._name, CONF_SPEAKERS: self._speakers},
+            ),
+            errors=errors,
+        )
+
+    async def async_step_volumes(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Ask for the preset volume of each speaker in the group."""
+        if user_input is not None:
+            self._volumes = {name: int(user_input[name]) for name in self._speakers}
+            return self._async_save()
+
+        volume_selector = NumberSelector(
+            NumberSelectorConfig(
+                min=0, max=100, step=1, mode=NumberSelectorMode.SLIDER
+            )
+        )
+        return self.async_show_form(
+            step_id="volumes",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        name,
+                        default=self._volumes.get(name, DEFAULT_GROUP_VOLUME),
+                    ): volume_selector
+                    for name in self._speakers
+                }
+            ),
+        )
+
+    def _async_save(self) -> SubentryFlowResult:
+        """Create or update the speaker group."""
+        data = {
+            CONF_SPEAKERS: [
+                {CONF_NAME: name, "volume": self._volumes[name]}
+                for name in self._speakers
+            ]
+        }
+        if self.source == SOURCE_RECONFIGURE:
+            return self.async_update_and_abort(
+                self._get_entry(),
+                self._get_reconfigure_subentry(),
+                title=self._name,
+                data=data,
+            )
+        return self.async_create_entry(title=self._name, data=data)
+
+
 def fill_in_schema_dict(some_input):
     """Fill in schema dict defaults from user_input."""
     schema_dict = {}
@@ -116,6 +267,15 @@ class ForkedDaapdFlowHandler(ConfigFlow, domain=DOMAIN):
     ) -> ForkedDaapdOptionsFlowHandler:
         """Return options flow handler."""
         return ForkedDaapdOptionsFlowHandler()
+
+    @classmethod
+    @callback
+    @override
+    def async_get_supported_subentry_types(
+        cls, config_entry: ForkedDaapdConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Return the supported subentry types."""
+        return {SUBENTRY_TYPE_SPEAKER_GROUP: SpeakerGroupSubentryFlowHandler}
 
     async def validate_input(self, user_input):
         """Validate the user input."""

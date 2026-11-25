@@ -1,0 +1,78 @@
+"""Speaker group selection for forked-daapd."""
+
+from typing import Any, override
+
+from homeassistant.components.select import SelectEntity
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from .const import FD_NAME, SIGNAL_CONFIG_OPTIONS_UPDATE, SIGNAL_UPDATE_OUTPUTS
+from .coordinator import ForkedDaapdConfigEntry, ForkedDaapdUpdater
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ForkedDaapdConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Set up the speaker group select from a config entry."""
+    async_add_entities(
+        [ForkedDaapdSpeakerGroupSelect(config_entry.runtime_data, config_entry)]
+    )
+
+
+class ForkedDaapdSpeakerGroupSelect(SelectEntity):
+    """Select which speaker group is enabled."""
+
+    _attr_icon = "mdi:speaker-multiple"
+    _attr_name = f"{FD_NAME} speaker group"
+    _attr_should_poll = False
+
+    def __init__(
+        self, updater: ForkedDaapdUpdater, config_entry: ForkedDaapdConfigEntry
+    ) -> None:
+        """Initialize the speaker group select."""
+        self._updater = updater
+        self._entry_id = config_entry.entry_id
+        self._attr_unique_id = f"{config_entry.entry_id}-speaker_group"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Use lifecycle hooks."""
+        for signal in (SIGNAL_UPDATE_OUTPUTS, SIGNAL_CONFIG_OPTIONS_UPDATE):
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    signal.format(self._entry_id),
+                    self._async_handle_update,
+                )
+            )
+
+    @callback
+    def _async_handle_update(self, *args: Any) -> None:
+        """Write the new state."""
+        self.async_write_ha_state()
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Return whether the server has reported its outputs."""
+        return bool(self._updater.outputs)
+
+    @property
+    @override
+    def options(self) -> list[str]:
+        """Return the speaker groups."""
+        return list(self._updater.speaker_groups)
+
+    @property
+    @override
+    def current_option(self) -> str | None:
+        """Return the group matching the current outputs."""
+        return self._updater.current_speaker_group
+
+    @override
+    async def async_select_option(self, option: str) -> None:
+        """Apply the selected group."""
+        await self._updater.async_apply_speaker_group(option)

@@ -1,0 +1,13 @@
+select_speaker_group:
+  target:
+    entity:
+      integration: forked_daapd
+      domain: media_player
+      supported_features:
+        - media_player.MediaPlayerEntityFeature.GROUPING
+  fields:
+    speaker_group:
+      required: true
+      example: Everywhere
+      selector:
+        text:

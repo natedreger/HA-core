@@ -1,8 +1,10 @@
 """The media player tests for the forked_daapd media player platform."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from types import MappingProxyType
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_mock_signal
@@ -11,19 +13,23 @@ from homeassistant.components.forked_daapd.browse_media import create_media_cont
 from homeassistant.components.forked_daapd.const import (
     CONF_LIBRESPOT_JAVA_PORT,
     CONF_MAX_PLAYLISTS,
+    CONF_SPEAKERS,
     CONF_TTS_PAUSE_TIME,
     CONF_TTS_VOLUME,
+    DOMAIN,
     SIGNAL_UPDATE_OUTPUTS,
     SIGNAL_UPDATE_PLAYER,
     SIGNAL_UPDATE_QUEUE,
     SOURCE_NAME_CLEAR,
     SOURCE_NAME_DEFAULT,
+    SUBENTRY_TYPE_SPEAKER_GROUP,
     SUPPORTED_FEATURES,
     SUPPORTED_FEATURES_ZONE,
 )
 from homeassistant.components.media_player import (
     ATTR_GROUP_MEMBERS,
     ATTR_INPUT_SOURCE,
+    ATTR_INPUT_SOURCE_LIST,
     ATTR_MEDIA_ALBUM_ARTIST,
     ATTR_MEDIA_ALBUM_NAME,
     ATTR_MEDIA_ANNOUNCE,
@@ -61,6 +67,13 @@ from homeassistant.components.media_player import (
     MediaType,
 )
 from homeassistant.components.media_source import PlayMedia
+from homeassistant.components.select import (
+    ATTR_OPTION,
+    ATTR_OPTIONS,
+    DOMAIN as SELECT_DOMAIN,
+    SERVICE_SELECT_OPTION,
+)
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
     ATTR_FRIENDLY_NAME,
@@ -69,12 +82,14 @@ from homeassistant.const import (
     STATE_PAUSED,
     STATE_PLAYING,
     STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
 )
 from homeassistant.core import HomeAssistant, ServiceResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 
 TEST_MASTER_ENTITY_NAME = "media_player.owntone_server"
+TEST_SELECT_ENTITY_NAME = "select.owntone_speaker_group"
 TEST_ZONE_ENTITY_NAMES = [
     "media_player.owntone_output_" + x for x in ("kitchen", "computer", "daapd_fifo")
 ]
@@ -1109,3 +1124,151 @@ async def test_play_media_source(hass: HomeAssistant, mock_api_object: Mock) -> 
         position=0,
         playback_from_position=0,
     )
+
+
+def _add_speaker_group(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    name: str,
+    speakers: list[dict[str, Any]],
+) -> None:
+    hass.config_entries.async_add_subentry(
+        config_entry,
+        ConfigSubentry(
+            data=MappingProxyType({CONF_SPEAKERS: speakers}),
+            subentry_type=SUBENTRY_TYPE_SPEAKER_GROUP,
+            title=name,
+            unique_id=None,
+        ),
+    )
+
+
+async def _select_with_action(hass: HomeAssistant, group: str) -> None:
+    await hass.services.async_call(
+        DOMAIN,
+        "select_speaker_group",
+        {ATTR_ENTITY_ID: TEST_MASTER_ENTITY_NAME, "speaker_group": group},
+        blocking=True,
+    )
+
+
+async def _select_with_dropdown(hass: HomeAssistant, group: str) -> None:
+    await hass.services.async_call(
+        SELECT_DOMAIN,
+        SERVICE_SELECT_OPTION,
+        {ATTR_ENTITY_ID: TEST_SELECT_ENTITY_NAME, ATTR_OPTION: group},
+        blocking=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "select_group",
+    [
+        pytest.param(_select_with_action, id="action"),
+        pytest.param(_select_with_dropdown, id="dropdown"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("speakers", "expected_calls"),
+    [
+        pytest.param(
+            [{"name": "Kitchen ", "volume": 30}, {"name": "missing", "volume": 10}],
+            [
+                call("123456789012345", selected=True, volume=30),
+                call("0", selected=False),
+                call("100", selected=False),
+            ],
+            id="some-speakers",
+        ),
+        pytest.param(
+            [],
+            [
+                call("123456789012345", selected=False),
+                call("0", selected=False),
+                call("100", selected=False),
+            ],
+            id="all-off",
+        ),
+    ],
+)
+async def test_select_speaker_group(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_api_object: Mock,
+    select_group: Callable[[HomeAssistant, str], Awaitable[None]],
+    speakers: list[dict[str, Any]],
+    expected_calls: list[Any],
+) -> None:
+    """Test selecting a speaker group sets outputs and volumes."""
+    _add_speaker_group(hass, config_entry, "Cooking", speakers)
+    await hass.async_block_till_done()
+    state = hass.states.get(TEST_SELECT_ENTITY_NAME)
+    assert state.attributes[ATTR_OPTIONS] == ["None", "Cooking"]
+    state = hass.states.get(TEST_MASTER_ENTITY_NAME)
+    assert "Cooking" not in state.attributes[ATTR_INPUT_SOURCE_LIST]
+
+    await select_group(hass, "Cooking")
+
+    assert mock_api_object.change_output.call_args_list == expected_calls
+    mock_api_object.add_to_queue.assert_not_called()
+    mock_api_object.set_volume.assert_not_called()
+
+
+async def test_current_speaker_group(
+    hass: HomeAssistant, config_entry: MockConfigEntry, mock_api_object: Mock
+) -> None:
+    """Test the dropdown shows the group matching the outputs."""
+    _add_speaker_group(
+        hass,
+        config_entry,
+        "Cooking",
+        [{"name": "kitchen", "volume": 50}, {"name": "computer", "volume": 19}],
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(TEST_SELECT_ENTITY_NAME).state == "Cooking"
+
+    updater_update = mock_api_object.start_websocket_handler.call_args[0][2]
+    with patch.dict(SAMPLE_OUTPUTS_ON[0], {"volume": 51}):
+        await updater_update(["outputs"])
+        await hass.async_block_till_done()
+        assert hass.states.get(TEST_SELECT_ENTITY_NAME).state == STATE_UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("group", "translation_key"),
+    [
+        pytest.param("Attic", "group_unavailable", id="speakers-unavailable"),
+        pytest.param("Basement", "group_not_found", id="unknown-group"),
+    ],
+)
+async def test_select_speaker_group_error(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_api_object: Mock,
+    group: str,
+    translation_key: str,
+) -> None:
+    """Test a group that cannot be applied changes nothing."""
+    _add_speaker_group(
+        hass, config_entry, "Attic", [{"name": "missing", "volume": 10}]
+    )
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _select_with_action(hass, group)
+
+    assert err.value.translation_key == translation_key
+    mock_api_object.change_output.assert_not_called()
+
+
+async def test_select_none_speaker_group(
+    hass: HomeAssistant, mock_api_object: Mock
+) -> None:
+    """Test the built-in group turns all outputs off."""
+    await _select_with_dropdown(hass, "None")
+
+    assert mock_api_object.change_output.call_args_list == [
+        call("123456789012345", selected=False),
+        call("0", selected=False),
+        call("100", selected=False),
+    ]

@@ -25,9 +25,61 @@
       }
     }
   },
+  "config_subentries": {
+    "speaker_group": {
+      "abort": {
+        "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+        "entry_not_loaded": "The OwnTone server is not loaded.",
+        "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]"
+      },
+      "entry_type": "Speaker group",
+      "error": {
+        "name_exists": "A speaker group with this name already exists.",
+        "name_required": "Enter a name."
+      },
+      "initiate_flow": {
+        "reconfigure": "Edit speaker group",
+        "user": "Add speaker group"
+      },
+      "step": {
+        "reconfigure": {
+          "data": {
+            "name": "Group name",
+            "speakers": "Speakers"
+          },
+          "data_description": {
+            "name": "Shown in the speaker group list.",
+            "speakers": "Speakers to turn on. All other speakers are turned off."
+          },
+          "title": "Edit speaker group"
+        },
+        "user": {
+          "data": {
+            "name": "Group name",
+            "speakers": "Speakers"
+          },
+          "data_description": {
+            "name": "Shown in the speaker group list.",
+            "speakers": "Speakers to turn on. All other speakers are turned off."
+          },
+          "title": "Add speaker group"
+        },
+        "volumes": {
+          "description": "Set the volume of each speaker, from 0 to 100.",
+          "title": "Speaker volumes"
+        }
+      }
+    }
+  },
   "exceptions": {
     "entity_not_found": {
       "message": "Entity {entity_id} not found."
+    },
+    "group_not_found": {
+      "message": "Speaker group {group} does not exist."
+    },
+    "group_unavailable": {
+      "message": "None of the speakers in {group} are available."
     },
     "not_forked_daapd_output": {
       "message": "Entity {entity_id} is not an output of this OwnTone server."
@@ -48,6 +100,18 @@
         "description": "Set various options for the OwnTone integration.",
         "title": "Configure OwnTone options"
       }
+    }
+  },
+  "services": {
+    "select_speaker_group": {
+      "description": "Turns on a speaker group at its preset volumes and turns off all other speakers.",
+      "fields": {
+        "speaker_group": {
+          "description": "Name of the speaker group.",
+          "name": "Speaker group"
+        }
+      },
+      "name": "Select speaker group"
     }
   }
 }

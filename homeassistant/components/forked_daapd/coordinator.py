@@ -9,16 +9,21 @@ from pyforked_daapd import ForkedDaapdAPI
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import PlatformNotReady
+from homeassistant.exceptions import PlatformNotReady, ServiceValidationError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
+    CONF_SPEAKERS,
+    DOMAIN,
     SIGNAL_ADD_ZONES,
     SIGNAL_UPDATE_DATABASE,
     SIGNAL_UPDATE_MASTER,
     SIGNAL_UPDATE_OUTPUTS,
     SIGNAL_UPDATE_PLAYER,
     SIGNAL_UPDATE_QUEUE,
+    SPEAKER_GROUP_NONE,
+    SUBENTRY_TYPE_SPEAKER_GROUP,
+    normalize_speaker_name,
 )
 
 type ForkedDaapdConfigEntry = ConfigEntry[ForkedDaapdUpdater]
@@ -39,11 +44,82 @@ class ForkedDaapdUpdater:
         self.websocket_handler: asyncio.Task[None] | None = None
         self._all_output_ids: set[str] = set()
         self._entry_id = entry_id
+        self.outputs: list[dict[str, Any]] = []
 
     @property
     def api(self) -> ForkedDaapdAPI:
         """Return the API object."""
         return self._api
+
+    @property
+    def speaker_groups(self) -> dict[str, dict[str, int]]:
+        """Return the volume of each speaker, keyed by group and speaker name."""
+        entry = self.hass.config_entries.async_get_known_entry(self._entry_id)
+        # The built-in group without speakers turns all outputs off
+        groups: dict[str, dict[str, int]] = {SPEAKER_GROUP_NONE: {}}
+        for subentry in entry.subentries.values():
+            if (
+                subentry.subentry_type == SUBENTRY_TYPE_SPEAKER_GROUP
+                and subentry.title.casefold() != SPEAKER_GROUP_NONE.casefold()
+            ):
+                groups[subentry.title] = {
+                    normalize_speaker_name(speaker["name"]): speaker["volume"]
+                    for speaker in subentry.data[CONF_SPEAKERS]
+                }
+        return groups
+
+    @property
+    def current_speaker_group(self) -> str | None:
+        """Return the group matching the enabled outputs and their volumes."""
+        available = {normalize_speaker_name(output["name"]) for output in self.outputs}
+        enabled = {
+            normalize_speaker_name(output["name"]): output["volume"]
+            for output in self.outputs
+            if output["selected"]
+        }
+        for group, volumes in self.speaker_groups.items():
+            expected = {
+                name: volume for name, volume in volumes.items() if name in available
+            }
+            if expected == enabled and (expected or not volumes):
+                return group
+        return None
+
+    async def async_apply_speaker_group(self, group: str) -> None:
+        """Enable the group's outputs at their volumes and disable all others."""
+        if (volumes := self.speaker_groups.get(group)) is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="group_not_found",
+                translation_placeholders={"group": group},
+            )
+        members: dict[str, int] = {}
+        others: list[str] = []
+        for output in self.outputs:
+            name = normalize_speaker_name(output["name"])
+            if name in volumes:
+                members[output["id"]] = volumes[name]
+            else:
+                others.append(output["id"])
+        if volumes and not members:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="group_unavailable",
+                translation_placeholders={"group": group},
+            )
+
+        await asyncio.gather(
+            *(
+                self._api.change_output(output_id, selected=True, volume=volume)
+                for output_id, volume in members.items()
+            )
+        )
+        await asyncio.gather(
+            *(
+                self._api.change_output(output_id, selected=False)
+                for output_id in others
+            )
+        )
 
     async def async_init(self) -> None:
         """Perform async portion of class initialization."""
@@ -64,6 +140,7 @@ class ForkedDaapdUpdater:
 
     async def _disconnected_callback(self) -> None:
         """Send update signals when the websocket gets disconnected."""
+        self.outputs = []
         async_dispatcher_send(
             self.hass, SIGNAL_UPDATE_MASTER.format(self._entry_id), False
         )
@@ -91,6 +168,7 @@ class ForkedDaapdUpdater:
         if not {"outputs", "volume"}.isdisjoint(update_types):  # update outputs
             if outputs := await self._api.get_request("outputs"):
                 outputs = outputs["outputs"]
+                self.outputs = outputs
                 update_events["outputs"] = (
                     asyncio.Event()
                 )  # only for master, zones should ignore

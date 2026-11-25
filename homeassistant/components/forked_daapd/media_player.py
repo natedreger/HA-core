@@ -266,6 +266,7 @@ class ForkedDaapdMaster(MediaPlayerEntity):
         self._available = False
         self._clientsession = clientsession
         self._entry_id = config_entry.entry_id
+        self._updater = config_entry.runtime_data
         self.update_options(config_entry.options)
         self._paused_event = asyncio.Event()
         self._pause_requested = False
@@ -508,6 +509,10 @@ class ForkedDaapdMaster(MediaPlayerEntity):
         """Remove all outputs from the current playback."""
         if any(output["selected"] for output in self._outputs):
             await self.api.set_enabled_outputs([])
+
+    async def async_select_speaker_group(self, speaker_group: str) -> None:
+        """Apply a speaker group."""
+        await self._updater.async_apply_speaker_group(speaker_group)
 
     @property
     @override

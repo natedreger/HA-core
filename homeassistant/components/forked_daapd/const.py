@@ -23,6 +23,7 @@ CAN_PLAY_TYPE = {
 }
 CONF_LIBRESPOT_JAVA_PORT = "librespot_java_port"
 CONF_MAX_PLAYLISTS = "max_playlists"
+CONF_SPEAKERS = "speakers"
 CONF_TTS_PAUSE_TIME = "tts_pause_time"
 CONF_TTS_VOLUME = "tts_volume"
 DEFAULT_PORT = 3689
@@ -51,6 +52,8 @@ SIGNAL_UPDATE_PLAYER = "forked-daapd_update_player {}"
 SIGNAL_UPDATE_QUEUE = "forked-daapd_update_queue {}"
 SOURCE_NAME_CLEAR = "Clear queue"
 SOURCE_NAME_DEFAULT = "Default (no pipe)"
+SPEAKER_GROUP_NONE = "None"
+SUBENTRY_TYPE_SPEAKER_GROUP = "speaker_group"
 STARTUP_DATA = {
     "player": {
         "state": "stop",
@@ -93,3 +96,8 @@ SUPPORTED_FEATURES_ZONE = (
 )
 TTS_TIMEOUT = 20  # max time to wait between TTS getting sent and starting to play
 URI_SCHEMA = "owntone"
+
+
+def normalize_speaker_name(name: str) -> str:
+    """Normalize an output name, as output ids change when hardware is replaced."""
+    return name.strip().casefold()

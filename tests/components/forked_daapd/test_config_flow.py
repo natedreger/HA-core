@@ -1,7 +1,7 @@
 """The config flow tests for the forked_daapd media player platform."""
 
 from ipaddress import ip_address
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
@@ -9,9 +9,11 @@ from pytest_homeassistant.common import MockConfigEntry
 from homeassistant.components.forked_daapd.const import (
     CONF_LIBRESPOT_JAVA_PORT,
     CONF_MAX_PLAYLISTS,
+    CONF_SPEAKERS,
     CONF_TTS_PAUSE_TIME,
     CONF_TTS_VOLUME,
     DOMAIN,
+    SUBENTRY_TYPE_SPEAKER_GROUP,
 )
 from homeassistant.config_entries import SOURCE_USER, SOURCE_ZEROCONF, ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT
@@ -348,3 +350,78 @@ async def test_async_setup_entry_not_ready(
         mock_api.return_value.get_request.assert_called_once()
         assert "Platform forked_daapd not ready yet" in caplog.text
         assert config_entry.state is ConfigEntryState.LOADED
+
+
+def _mock_loaded_entry(hass: HomeAssistant, config_entry: MockConfigEntry) -> None:
+    config_entry.add_to_hass(hass)
+    config_entry.mock_state(hass, ConfigEntryState.LOADED)
+    config_entry.runtime_data = Mock()
+    config_entry.runtime_data.api.get_request = AsyncMock(
+        return_value={"outputs": [{"name": "Kitchen"}, {"name": "Office"}]}
+    )
+
+
+async def test_speaker_group_add_and_edit(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """Test adding and then editing a speaker group."""
+    _mock_loaded_entry(hass, config_entry)
+
+    result = await hass.config_entries.subentries.async_init(
+        (config_entry.entry_id, SUBENTRY_TYPE_SPEAKER_GROUP),
+        context={"source": SOURCE_USER},
+    )
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": "Cooking", CONF_SPEAKERS: ["Kitchen"]}
+    )
+    assert result["step_id"] == "volumes"
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"Kitchen": 30}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Cooking"
+    assert result["data"] == {CONF_SPEAKERS: [{"name": "Kitchen", "volume": 30}]}
+
+    subentry_id = next(iter(config_entry.subentries))
+    result = await config_entry.start_subentry_reconfigure_flow(hass, subentry_id)
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": "Cooking", CONF_SPEAKERS: ["Office"]}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"Office": 40}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.subentries[subentry_id].data == {
+        CONF_SPEAKERS: [{"name": "Office", "volume": 40}]
+    }
+
+    result = await hass.config_entries.subentries.async_init(
+        (config_entry.entry_id, SUBENTRY_TYPE_SPEAKER_GROUP),
+        context={"source": SOURCE_USER},
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": "cooking", CONF_SPEAKERS: []}
+    )
+    assert result["errors"] == {"name": "name_exists"}
+
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"name": "none", CONF_SPEAKERS: []}
+    )
+    assert result["errors"] == {"name": "name_exists"}
+
+
+async def test_speaker_group_entry_not_loaded(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """Test speaker groups cannot be added while the server is not loaded."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.subentries.async_init(
+        (config_entry.entry_id, SUBENTRY_TYPE_SPEAKER_GROUP),
+        context={"source": SOURCE_USER},
+    )
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "entry_not_loaded"
