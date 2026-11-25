@@ -1294,4 +1294,8 @@ def test_server_device(
     master = entity_registry.async_get(TEST_MASTER_ENTITY_NAME)
     select = entity_registry.async_get(TEST_SELECT_ENTITY_NAME)
     assert master.device_id == select.device_id
-    assert device_registry.async_get(master.device_id).name == "OwnTone server"
+    device = device_registry.async_get(master.device_id)
+    assert device.name == "OwnTone server"
+    assert device.configuration_url == (
+        "homeassistant://config/integrations/integration/forked_daapd"
+    )

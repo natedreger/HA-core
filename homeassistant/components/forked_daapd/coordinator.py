@@ -58,7 +58,10 @@ class ForkedDaapdUpdater:
     def device_info(self) -> DeviceInfo:
         """Return the server device."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)}, name=f"{FD_NAME} server"
+            # Speaker groups are added and edited on the integration page
+            configuration_url=f"homeassistant://config/integrations/integration/{DOMAIN}",
+            identifiers={(DOMAIN, self._entry_id)},
+            name=f"{FD_NAME} server",
         )
 
     @property
