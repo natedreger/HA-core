@@ -52,6 +52,7 @@ SIGNAL_UPDATE_PLAYER = "forked-daapd_update_player {}"
 SIGNAL_UPDATE_QUEUE = "forked-daapd_update_queue {}"
 SOURCE_NAME_CLEAR = "Clear queue"
 SOURCE_NAME_DEFAULT = "Default (no pipe)"
+SPEAKER_GROUP_MODIFIED_SUFFIX = "*"
 SPEAKER_GROUP_NONE = "None"
 SUBENTRY_TYPE_SPEAKER_GROUP = "speaker_group"
 STARTUP_DATA = {

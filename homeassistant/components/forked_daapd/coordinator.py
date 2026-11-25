@@ -21,6 +21,7 @@ from .const import (
     SIGNAL_UPDATE_OUTPUTS,
     SIGNAL_UPDATE_PLAYER,
     SIGNAL_UPDATE_QUEUE,
+    SPEAKER_GROUP_MODIFIED_SUFFIX,
     SPEAKER_GROUP_NONE,
     SUBENTRY_TYPE_SPEAKER_GROUP,
     normalize_speaker_name,
@@ -70,20 +71,26 @@ class ForkedDaapdUpdater:
 
     @property
     def current_speaker_group(self) -> str | None:
-        """Return the group matching the enabled outputs and their volumes."""
+        """Return the group matching the enabled outputs.
+
+        The name is suffixed if only the volumes differ from the presets.
+        """
         available = {normalize_speaker_name(output["name"]) for output in self.outputs}
         enabled = {
             normalize_speaker_name(output["name"]): output["volume"]
             for output in self.outputs
             if output["selected"]
         }
+        modified_group: str | None = None
         for group, volumes in self.speaker_groups.items():
             expected = {
                 name: volume for name, volume in volumes.items() if name in available
             }
             if expected == enabled and (expected or not volumes):
                 return group
-        return None
+            if not modified_group and expected and expected.keys() == enabled.keys():
+                modified_group = f"{group}{SPEAKER_GROUP_MODIFIED_SUFFIX}"
+        return modified_group
 
     async def async_apply_speaker_group(self, group: str) -> None:
         """Enable the group's outputs at their volumes and disable all others."""

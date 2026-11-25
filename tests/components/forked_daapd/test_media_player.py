@@ -1231,6 +1231,18 @@ async def test_current_speaker_group(
     with patch.dict(SAMPLE_OUTPUTS_ON[0], {"volume": 51}):
         await updater_update(["outputs"])
         await hass.async_block_till_done()
+        state = hass.states.get(TEST_SELECT_ENTITY_NAME)
+        assert state.state == "Cooking*"
+        assert state.attributes[ATTR_OPTIONS] == ["None", "Cooking", "Cooking*"]
+
+        await _select_with_dropdown(hass, "Cooking*")
+        mock_api_object.change_output.assert_any_call(
+            "123456789012345", selected=True, volume=50
+        )
+
+    with patch.dict(SAMPLE_OUTPUTS_ON[2], {"selected": True}):
+        await updater_update(["outputs"])
+        await hass.async_block_till_done()
         assert hass.states.get(TEST_SELECT_ENTITY_NAME).state == STATE_UNKNOWN
 
 

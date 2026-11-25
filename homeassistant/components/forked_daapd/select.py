@@ -7,7 +7,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import FD_NAME, SIGNAL_CONFIG_OPTIONS_UPDATE, SIGNAL_UPDATE_OUTPUTS
+from .const import (
+    FD_NAME,
+    SIGNAL_CONFIG_OPTIONS_UPDATE,
+    SIGNAL_UPDATE_OUTPUTS,
+    SPEAKER_GROUP_MODIFIED_SUFFIX,
+)
 from .coordinator import ForkedDaapdConfigEntry, ForkedDaapdUpdater
 
 
@@ -63,8 +68,12 @@ class ForkedDaapdSpeakerGroupSelect(SelectEntity):
     @property
     @override
     def options(self) -> list[str]:
-        """Return the speaker groups."""
-        return list(self._updater.speaker_groups)
+        """Return the speaker groups, plus the current one if it was modified."""
+        options = list(self._updater.speaker_groups)
+        # The current option must be listed or the state becomes unknown
+        if (current := self.current_option) and current not in options:
+            options.append(current)
+        return options
 
     @property
     @override
@@ -74,5 +83,7 @@ class ForkedDaapdSpeakerGroupSelect(SelectEntity):
 
     @override
     async def async_select_option(self, option: str) -> None:
-        """Apply the selected group."""
+        """Apply the selected group, restoring its preset volumes."""
+        if option not in self._updater.speaker_groups:
+            option = option.removesuffix(SPEAKER_GROUP_MODIFIED_SUFFIX)
         await self._updater.async_apply_speaker_group(option)
